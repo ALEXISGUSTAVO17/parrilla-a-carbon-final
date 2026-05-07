@@ -1,0 +1,1258 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0"/>
+  <title>POKER A CARBÓN 🔥</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800;900&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet"/>
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    html,body{height:100%;background:#080f1f}
+    #root{min-height:100vh}
+    ::-webkit-scrollbar{width:4px;height:4px}::-webkit-scrollbar-track{background:#1e293b}::-webkit-scrollbar-thumb{background:#f97316;border-radius:2px}
+    input,textarea,select{background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:8px;padding:8px 12px;font-family:'Syne',sans-serif;font-size:14px;outline:none;transition:border-color .2s,box-shadow .2s}
+    input:focus,textarea:focus,select:focus{border-color:#f97316;box-shadow:0 0 0 3px rgba(249,115,22,.15)}
+    input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none}
+    input[type=checkbox]{accent-color:#f97316;width:15px;height:15px;cursor:pointer;flex-shrink:0}
+    button{cursor:pointer;font-family:'Syne',sans-serif;transition:all .2s}
+    input::placeholder,textarea::placeholder{color:#475569}
+    table{width:100%;border-collapse:collapse}
+    th{text-align:left;font-size:10px;color:#64748b;font-weight:700;letter-spacing:.6px;padding:0 6px 9px 0;border-bottom:1px solid #334155;white-space:nowrap}
+    td{padding:8px 6px 8px 0;border-bottom:1px solid #1e293b;font-size:13px;vertical-align:middle}
+    tr:last-child td{border-bottom:none}
+    .mono{font-family:'JetBrains Mono',monospace}
+    .fade-in{animation:fadeIn .25s ease}.slide-in{animation:slideIn .2s ease}
+    @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+    @keyframes slideIn{from{opacity:0;transform:translateX(-8px)}to{opacity:1;transform:translateX(0)}}
+    @keyframes flicker{0%,100%{opacity:1}50%{opacity:.75}75%{opacity:.9}}
+    .fire{animation:flicker 1.6s ease-in-out infinite}
+    @keyframes pop{0%{transform:scale(.82);opacity:0}60%{transform:scale(1.05)}100%{transform:scale(1);opacity:1}}
+    .pop{animation:pop .3s ease}
+    @keyframes shake{0%,100%{transform:translateX(0)}20%{transform:translateX(-4px)}40%{transform:translateX(4px)}60%{transform:translateX(-3px)}80%{transform:translateX(3px)}}
+    .shake{animation:shake .5s ease}
+    @media(max-width:600px){th,td{font-size:11px}.hide-m{display:none}}
+  </style>
+</head>
+<body><div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useMemo, useCallback, useRef } = React;
+
+// ─── Levenshtein & fuzzy helpers ──────────────────────────────────────────────
+const lev=(a,b)=>{
+  const m=a.length,n=b.length;
+  if(Math.abs(m-n)>4)return 99;
+  const d=Array.from({length:m+1},(_,i)=>Array.from({length:n+1},(_,j)=>i===0?j:j===0?i:0));
+  for(let i=1;i<=m;i++)for(let j=1;j<=n;j++)d[i][j]=a[i-1]===b[j-1]?d[i-1][j-1]:1+Math.min(d[i-1][j],d[i][j-1],d[i-1][j-1]);
+  return d[m][n];
+};
+const norm=s=>s.toLowerCase().replace(/[\s\-_\.]/g,'').normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+
+// ─── Section keyword families (fuzzy-matched) ─────────────────────────────────
+// Each family: [canonical, ...variants]. Threshold = floor(canonical.length * 0.45)
+const KEYWORD_FAMILIES = {
+  players:  ['jugadores','players','jugadore','jugaores','jugadres','participantes','lista'],
+  cashout:  ['cashout','cashouts','cashao','cashaout','chasout','cachout','caishaout','cashut',
+             'cashoutt','kashaout','cash','cashot','cashao','casho','kasho','kashaout','ganancias','ganadores','premios','resultados'],
+  rebuy:    ['rebuy','rebuys','ribuy','ribuys','ribeye','ribui','rebui','rebays','rebuay',
+             'rib-eye','re-buy','re-buys','ribay','ribeys','riboys','rybuy','reboy'],
+};
+
+function matchKeywordFamily(word){
+  const w=norm(word);
+  for(const[family,variants]of Object.entries(KEYWORD_FAMILIES)){
+    for(const v of variants){
+      const nv=norm(v);
+      const threshold=Math.max(1,Math.floor(nv.length*0.45));
+      if(lev(w,nv)<=threshold)return family;
+    }
+  }
+  return null;
+}
+
+// ─── Hard reserved (exact, never player names) ────────────────────────────────
+const RES=new Set(['rebuy','rebuys','cashout','cashouts','jugadores','players','premios',
+  'resultados','ganadores','pagos','total','lista','poker','partida','torneo','buy-in','buyin',
+  'buy','in','fecha','lugar','casa','noche','resumen','ganancia','perdida','pérdida',
+  'transferencias','carbón','carbon','a','de','donde','lo','en','ok','cerrado','sellado',
+  'cashao','cashaout','kasho','chasout','ribuy','ribeye','ribui']);
+
+// ─── Other utils ──────────────────────────────────────────────────────────────
+const similar=(a,b)=>{
+  const la=a.toLowerCase().trim(),lb=b.toLowerCase().trim();
+  if(la===lb)return false;
+  // Prefix match: "jean" ↔ "jeanpi" (one is a prefix of the other, diff ≤ 3 chars)
+  const shorter=la.length<lb.length?la:lb, longer=la.length<lb.length?lb:la;
+  if(longer.startsWith(shorter)&&longer.length-shorter.length<=3)return true;
+  // Short names (≤4 chars) → distance ≤ 1 only (avoids Chon≈choco false positives)
+  const minLen=Math.min(la.length,lb.length);
+  const threshold=minLen<=4?1:2;
+  return lev(la,lb)<=threshold&&Math.abs(la.length-lb.length)<=3;
+};
+const pm=str=>parseInt(String(str||0).replace(/[^0-9]/g,''))||0;
+const fmt=n=>'$'+Math.abs(n).toLocaleString('es-CL');
+const fmtS=n=>(n>0?'+':'')+fmt(n);
+const rnd=arr=>arr[Math.floor(Math.random()*arr.length)];
+const uid=()=>Date.now()+Math.random();
+
+function parseDate(text){
+  const MONTHS={enero:1,febrero:2,marzo:3,abril:4,mayo:5,junio:6,julio:7,agosto:8,septiembre:9,octubre:10,noviembre:11,diciembre:12};
+  const p1=text.match(/\b(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})\b/);
+  if(p1){const y=p1[3].length===2?'20'+p1[3]:p1[3];return`${p1[1].padStart(2,'0')}/${p1[2].padStart(2,'0')}/${y}`;}
+  const p2=text.match(/\b(\d{1,2})\s+de\s+(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)\s+(?:de\s+)?(\d{4})/i);
+  if(p2){return`${p2[1].padStart(2,'0')}/${String(MONTHS[p2[2].toLowerCase()]).padStart(2,'0')}/${p2[3]}`;}
+  return null;
+}
+function getMonth(d){if(!d)return'sin-fecha';const p=d.split('/');return p.length===3?`${p[2]}-${p[1].padStart(2,'0')}`:'sin-fecha';}
+function labelMonth(m){if(!m||m==='sin-fecha')return'Sin fecha';const[y,mo]=m.split('-');const N=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];return`${N[parseInt(mo)-1]} ${y}`;}
+
+function minimizeTx(players){
+  const bal=players.map(p=>({name:p.name,bal:p.finalBalance})).filter(b=>Math.abs(b.bal)>1);
+  const tx=[],dbt=[...bal.filter(b=>b.bal<0)].sort((a,b)=>a.bal-b.bal),crd=[...bal.filter(b=>b.bal>0)].sort((a,b)=>b.bal-a.bal);
+  let i=0,j=0;
+  while(i<dbt.length&&j<crd.length){const amt=Math.min(Math.abs(dbt[i].bal),crd[j].bal);if(amt>1)tx.push({from:dbt[i].name,to:crd[j].name,amount:Math.round(amt)});dbt[i].bal+=amt;crd[j].bal-=amt;if(Math.abs(dbt[i].bal)<1)i++;if(crd[j].bal<1)j++;}
+  return tx;
+}
+
+// ─── COMEDY ENGINE ────────────────────────────────────────────────────────────
+const PLAYER_COUNT_JOKES={
+  2:"Dos jugadores. Esto no es poker, es una pelea de ego con naipes.",
+  3:"Tres jugadores. El mínimo para que alguien tenga excusa: 'me intimidaron entre los dos'.",
+  4:"Cuatro en la mesa. El formato más honesto: todos saben quién les robó.",
+  5:"Cinco jugadores. Número de suerte... para uno solo. Los otros cuatro, no tanto.",
+  6:"Seis jugadores. Ya empieza a parecer casino. Faltan las luces de neón y el señor de seguridad.",
+  7:"Siete personas. Siete historias distintas de cómo 'iba a ir todo bien esta noche'.",
+  8:"Ocho jugadores. El caos empieza a tener estructura. O sea, más caos.",
+  9:"Nueve jugadores. El organizador ya está arrepentido pero no lo admitirá jamás.",
+  10:"Diez exactos. Mesa llena. Estadísticamente, el 90% va a mentir sobre cómo jugó.",
+  11:"Once o más. Esto ya es un evento. Faltan sponsors, cámaras y transmisión en vivo.",
+};
+
+const ACHIEVEMENTS=[
+  {id:'paz',check:(s)=>s.players.every(p=>!p.rebuys||p.rebuys===0),emoji:'🕊️',title:'La Paz Perpetua',desc:'Nadie rebuyó. Primera vez para todo.'},
+  {id:'infierno',check:(s)=>s.players.reduce((a,p)=>a+(parseInt(p.rebuys)||0),0)>s.players.length,emoji:'🔥',title:'El Infierno en Vida',desc:'Más rebuys que jugadores. Épico.'},
+  {id:'clean_win',check:(s)=>{const w=[...s.players].sort((a,b)=>b.pokerBalance-a.pokerBalance)[0];return w&&w.pokerBalance>0&&!w.rebuys;},emoji:'🥷',title:'El Golpe Limpio',desc:'El ganador no necesitó ni un rebuy. Puro talento (o suerte, pero no se lo digamos).'},
+  {id:'bigpot',check:(s)=>s.players.reduce((a,p)=>a+p.investment,0)>s.buyIn*s.players.length*1.5,emoji:'💰',title:'La Noche del Millón',desc:'El pot superó 1.5× lo esperado. Alguien (o varios) no sabían cuándo parar.'},
+  {id:'empate_moral',check:(s)=>s.players.filter(p=>Math.abs(p.pokerBalance)<s.buyIn*0.05).length>=2,emoji:'🤝',title:'Empate Moral',desc:'Al menos dos personas terminaron prácticamente igual. Los contadores involuntarios.'},
+  {id:'solo_rebuy',check:(s)=>s.players.filter(p=>(parseInt(p.rebuys)||0)>0).length===1,emoji:'🎯',title:'El Elegido',desc:'Solo uno rebuyó. El resto tuvo misericordia (o ya no tenía efectivo).'},
+  {id:'masacre',check:(s)=>{const sorted=[...s.players].sort((a,b)=>b.pokerBalance-a.pokerBalance);return sorted[0]?.pokerBalance>0&&sorted[sorted.length-1]?.pokerBalance<-s.buyIn*2;},emoji:'🩸',title:'La Masacre',desc:'El último lugar perdió más del doble del buy-in. Minuto de silencio.'},
+  {id:'full_house_real',check:(s)=>s.players.length>=8,emoji:'🏟️',title:'Full House',desc:'8 o más jugadores. La casa grande se quedó pequeña.'},
+];
+
+function getAchievements(session){
+  return ACHIEVEMENTS.filter(a=>{try{return a.check(session);}catch(_){return false;}});
+}
+
+function generateComments(session){
+  const pls=session.players||[];if(!pls.length)return[];
+  const sorted=[...pls].sort((a,b)=>b.pokerBalance-a.pokerBalance);
+  const winner=sorted[0],loser=sorted[sorted.length-1];
+  const donador=[...pls].sort((a,b)=>(b.rebuys||0)-(a.rebuys||0))[0];
+  const pot=pls.reduce((s,p)=>s+p.investment,0);
+  const loc=session.location||session.title||'la mesa';
+  const n=pls.length;
+  const even=pls.find(p=>Math.abs(p.pokerBalance)<pot*0.06&&p.name!==winner?.name&&p.name!==loser?.name);
+  const comments=[];
+
+  // Player count joke
+  const maxKey=Math.min(n,11);
+  comments.push(PLAYER_COUNT_JOKES[maxKey]||PLAYER_COUNT_JOKES[11]);
+
+  if(winner?.pokerBalance>0)comments.push(rnd([
+    `🔥 ${winner.name} se fue la raja de ${loc}. ${fmt(winner.pokerBalance)} que hablan por sí solos.`,
+    `💸 ${winner.name} ganó ${fmt(winner.pokerBalance)}. El Uber de regreso iba cantando.`,
+    `👑 ${winner.name} recordó esta noche por qué le gusta el poker. Los demás recordaron por qué a veces lo odian.`,
+    `🎰 ${winner.name}: ${fmt(winner.pokerBalance)}. "No es suerte, es lectura de mesa." Claro que sí.`,
+    `🃏 ${winner.name} salió con ${fmt(winner.pokerBalance)} ajenos. Delicioso, objetivamente.`,
+  ]));
+
+  if(loser?.pokerBalance<0)comments.push(rnd([
+    `😭 ${loser.name} "invirtió" ${fmt(Math.abs(loser.pokerBalance))} esta noche. Retorno: aprendizaje. (Spoiler: no aprendió.)`,
+    `🩸 ${loser.name} donó ${fmt(Math.abs(loser.pokerBalance))} al grupo. Filántropo involuntario del año.`,
+    `💀 ${loser.name} salió ${fmt(Math.abs(loser.pokerBalance))} más liviano. La buena noticia: hay revancha. La mala: hay revancha.`,
+    `🤡 ${loser.name} jugó bien... según ${loser.name}. La mesa tiene otra versión. Las matemáticas también.`,
+    `🫠 ${loser.name}: ${fmtS(loser.pokerBalance)}. No hay forma bonita de decirlo.`,
+  ]));
+
+  if(donador?.rebuys>0)comments.push(rnd([
+    `🔄 "${donador.name} ahora sí la rompo" — dicho ${donador.rebuys} vez${donador.rebuys>1?'es':''} con creciente desesperación.`,
+    `💉 ${donador.name}: ${donador.rebuys} rebuy${donador.rebuys>1?'s':''}. La definición clínica de esperanza.`,
+    `🎯 ${donador.name} con ${donador.rebuys} rebuy${donador.rebuys>1?'s':''}: optimismo involuntario de alto nivel.`,
+    `📈 ${donador.name} invirtió en el grupo ${donador.rebuys} vez${donador.rebuys>1?'es':''}. El ROI: negativo. La energía: incomprensible.`,
+  ]));
+
+  if(even)comments.push(rnd([
+    `🥚 ${even.name} terminó casi igual que como entró. Talento especial para quedar ni-chicha-ni-limonada.`,
+    `⚖️ ${even.name}: el equilibrio cósmico de la noche. Ni ganó ni perdió. Estuvo. Y eso es suficiente. (Mentira, no es suficiente.)`,
+    `😑 ${even.name} estuvo ${Math.round(Math.abs(even.pokerBalance)/pot*100)}% presente toda la noche para terminar en cero. Arte performance.`,
+  ]));
+
+  // Pot comment
+  comments.push(rnd([
+    `💰 ${fmt(pot)} en juego esta noche en ${loc}. Que nadie diga que falta fe ni efectivo.`,
+    `🃏 ${n} jugadores, ${fmt(pot)} sobre la mesa. Las matemáticas del cariño entre amigos.`,
+    `💵 El pot total fue ${fmt(pot)}. La mayoría ya lo estaba pensando en cervezas.`,
+  ]));
+
+  // Frase icónica de la noche (fake quotes)
+  const quotes=[];
+  if(donador?.rebuys>1)quotes.push(`💬 Frase de la noche — ${donador.name}: "Esta es LA última vez que rebuyo, de verdad." (×${donador.rebuys})`);
+  if(winner?.pokerBalance>pot*0.4)quotes.push(`💬 Frase de la noche — ${winner.name}: "Yo sabía que iba a ganar desde el primer hand."`);
+  if(loser?.pokerBalance<-pot*0.35)quotes.push(`💬 Frase de la noche — ${loser.name}: "Las cartas estuvieron en mi contra TODA la noche." (x${n} testigos que no confirman.)`);
+  if(n>=7)quotes.push(`💬 Frase de la noche — El organizador: "La próxima lo hacemos más pequeño." (Spoiler: no lo harán.)`);
+  if(quotes.length)comments.push(rnd(quotes));
+
+  return comments.slice(0,5);
+}
+
+// ─── Parser ───────────────────────────────────────────────────────────────────
+function stripWATimestamp(line){
+  const w1=line.match(/^\[[\d\/,\s:]+\]\s*[^:]+:\s*(.*)/);if(w1)return w1[1].trim();
+  const w2=line.match(/^\d{1,2}\/\d{1,2}\/\d{2,4},\s*\d{1,2}:\d{2}\s*(?:AM|PM)?\s*-\s*[^:]+:\s*(.*)/i);if(w2)return w2[1].trim();
+  return line.trim();
+}
+
+function parseBlock(rawText){
+  const lines=rawText.split('\n').map(stripWATimestamp).filter(Boolean);
+  let title='',parsedPlayers=[],cashoutMap={},mode=null;
+  const dateStr=parseDate(rawText);
+  const correctionLog=[]; // track fuzzy keyword corrections
+
+  for(const line of lines){
+    const clean=line.replace(/[🃏🎲♠♥♦♣*_~✓✗•🔥💸🩸]/g,'').trim();
+    const lower=clean.toLowerCase().replace(/[:\.\!\?]/g,'').trim();
+    if(!lower)continue;
+
+    // Title detection
+    if(!title&&/casa de|poker en|poker donde|partida|torneo|noche de|carbón|carbon/i.test(lower)){
+      title=clean.replace(/[-–—]\s*[\d\/].*$/,'').trim();continue;
+    }
+
+    // Mode switch via fuzzy keyword matching
+    const family=matchKeywordFamily(lower.split(/[\s:]/)[0]);
+    if(family==='players'){mode='players';continue;}
+    if(family==='cashout'){mode='cashout';continue;}
+    if(family==='rebuy')continue; // "Rebuys:" header line — skip
+
+    // Also check full line as keyword (e.g. line is just "cashao" or "ribeye")
+    const fullFamily=matchKeywordFamily(lower);
+    if(fullFamily){
+      if(fullFamily==='players'){mode='players';continue;}
+      if(fullFamily==='cashout'){mode='cashout';continue;}
+      if(fullFamily==='rebuy')continue;
+    }
+
+    // Exact reserved check
+    if(RES.has(lower)||RES.has(lower.replace(/s$/,'')))continue;
+
+    // ── Comma-separated name list: "Jaques, Alfredo, choco," ──────────────────
+    if(clean.includes(',')&&!clean.includes(':')){
+      const parts=clean.split(',').map(p=>p.trim()).filter(p=>p.length>=2&&p.length<=25);
+      const allNames=parts.length>=2&&parts.every(p=>/^[A-Za-záéíóúñÁÉÍÓÚÑ]/.test(p)&&!/\d/.test(p)&&!RES.has(p.toLowerCase()));
+      if(allNames){
+        for(const part of parts){
+          if(!part||RES.has(part.toLowerCase()))continue;
+          const existExact=parsedPlayers.find(p=>p.name.toLowerCase()===part.toLowerCase());
+          if(!existExact){
+            const existFuzzy=parsedPlayers.find(p=>similar(p.name,part));
+            if(!existFuzzy)parsedPlayers.push({id:uid(),name:part,rebuys:0,cashout:0});
+          }
+        }
+        if(!mode)mode='players';
+        continue;
+      }
+    }
+
+    // Cashout line: "Name: $amount" or "Name - amount"
+    const cm=clean.match(/^([A-Za-záéíóúñÁÉÍÓÚÑ][^:–\-0-9]{1,25}?)\s*[:\-–]\s*([\$0-9.,]+)\s*$/);
+    if(cm&&pm(cm[2])>=0){
+      const cn=cm[1].trim();
+      if(!RES.has(cn.toLowerCase())&&!matchKeywordFamily(cn.toLowerCase())){
+        cashoutMap[cn.toLowerCase()]={name:cn,amount:pm(cm[2])};
+        if(mode!=='players')mode='cashout';
+      }
+      continue;
+    }
+
+    // Player line — detect rebuys in all formats
+    // Formats: "Alfredo1", "Alfredo 1", "Alfredo - 2", "Alfredo x2", "Alfredo (2 rebuys)", "Alfredo ribeye" (typo)
+    const gm=clean.match(/^([A-Za-záéíóúñÁÉÍÓÚÑ][A-Za-záéíóúñÁÉÍÓÚÑ\s]*)(\d+)$/);
+    const km=clean.match(/(\d+)\s*(?:rebuy|rebuys|ribuy|ribuys|ribeye|ribui|rebui|ribay)s?|\bx(\d+)\b/i);
+    const tm=!km&&clean.match(/\s[-–]\s*(\d+)\s*$|\s(\d+)\s*$/);
+
+    let rb=0,np=clean;
+    if(gm){np=gm[1].trim();rb=parseInt(gm[2])||0;}
+    else if(km){rb=parseInt(km[1]||km[2])||0;np=clean.replace(/\s*\(?\d+\s*(?:re?buys?|ribeye|ribui|ribay|ribuy)s?\)?/i,'').replace(/\s+x\d+\s*$/i,'').trim();}
+    else if(tm){rb=parseInt(tm[1]||tm[2])||0;np=clean.replace(/\s*[-–]?\s*\d+\s*$/,'').trim();}
+
+    // Check if name part is a keyword/reserved
+    if(!np||np.length<2||RES.has(np.toLowerCase())||matchKeywordFamily(np.toLowerCase()))continue;
+
+    const valid=np.length<=30&&/^[A-Za-záéíóúñÁÉÍÓÚÑ]/.test(np)&&!/^\d/.test(np);
+    if((mode==='players'||(!mode&&valid))&&valid){
+      // Exact match → add rebuys; fuzzy match → merge rebuys; else → new player
+      const ex=parsedPlayers.find(p=>p.name.toLowerCase()===np.toLowerCase());
+      if(ex){ex.rebuys=(parseInt(ex.rebuys)||0)+rb;}
+      else{
+        const fz=parsedPlayers.find(p=>similar(p.name,np));
+        if(fz){fz.rebuys=(parseInt(fz.rebuys)||0)+rb;}
+        else{parsedPlayers.push({id:uid(),name:np,rebuys:rb,cashout:0});}
+      }
+    }
+  }
+
+  if(!parsedPlayers.length&&Object.keys(cashoutMap).length>0)
+    Object.values(cashoutMap).forEach(c=>parsedPlayers.push({id:uid(),name:c.name,rebuys:0,cashout:c.amount}));
+
+  // Match cashouts → players (exact then fuzzy)
+  const conflicts=[];
+  for(const[k,co]of Object.entries(cashoutMap)){
+    const ex=parsedPlayers.find(p=>p.name.toLowerCase()===k);
+    if(ex){ex.cashout=co.amount;continue;}
+    const fz=parsedPlayers.find(p=>similar(p.name,co.name));
+    if(fz&&!fz.cashout){conflicts.push({playerName:fz.name,cashoutName:co.name,amount:co.amount,dismissed:false});fz.cashout=co.amount;}
+  }
+
+  if(!title&&lines.length>0){const f=lines[0].replace(/[🃏🎲♠♥♦♣*_~🔥]/g,'').trim();if(f.length<60&&!/:\s*\d/.test(f))title=f;}
+  return{title,location:title,date:dateStr,players:parsedPlayers,cashoutMap,conflicts};
+}
+
+function detectAndParseSessions(rawText){
+  const blocks=rawText.split(/(?:\n\s*){3,}|(?:^|\n)(?:---+|===+)\s*(?:\n|$)/m).map(b=>b.trim()).filter(b=>b.length>15);
+  return blocks.map(block=>{
+    const parsed=parseBlock(block);
+    if(!parsed.players||parsed.players.length<2)return null;
+    const date=parsed.date||null;
+    return{...parsed,id:uid(),date:date||new Date().toLocaleDateString('es-CL'),month:getMonth(date||new Date().toLocaleDateString('es-CL')),locked:false,transactions:[],comments:[]};
+  }).filter(Boolean);
+}
+
+// ─── Food transfers: direct per-payer calculations ──────────────────────────────
+// Returns [{from, to, amount, label, payerId}] — each diner owes their share to each payer
+function calcFoodTransfers(payers, dinersPerPayer){
+  const transfers=[];
+  for(const payer of payers){
+    const amt=pm(payer.amount);if(!amt||!payer.name)continue;
+    const diners=[...(dinersPerPayer[payer.id]||new Set())];
+    if(!diners.length)continue;
+    const share=Math.round(amt/diners.length);
+    for(const diner of diners){
+      if(diner!==payer.name&&share>0)
+        transfers.push({from:diner,to:payer.name,amount:share,label:payer.label||'',payerId:payer.id});
+    }
+  }
+  return transfers;
+}
+
+// ─── Consolidate poker + food transfers for same pair of players ──────────────
+// Only merges when the SAME two people owe each other in BOTH poker AND food
+function consolidateTransfers(pokerTx, foodTx){
+  const KEY=(a,b)=>[a,b].sort().join('|||');
+  const map={};
+  const add=(from,to,amt,type)=>{
+    const k=KEY(from,to);
+    if(!map[k])map[k]={a:[from,to].sort()[0],b:[from,to].sort()[1],net:0,types:new Set()};
+    map[k].net+=(from===map[k].a?amt:-amt);
+    map[k].types.add(type);
+  };
+  pokerTx.forEach(t=>add(t.from,t.to,t.amount,'poker'));
+  foodTx.forEach(t=>add(t.from,t.to,t.amount,'food'));
+  // Only return pairs that appear in BOTH poker AND food
+  return Object.values(map)
+    .filter(x=>x.types.has('poker')&&x.types.has('food')&&Math.abs(x.net)>1)
+    .map(x=>({
+      from:x.net>0?x.a:x.b,
+      to:x.net>0?x.b:x.a,
+      amount:Math.round(Math.abs(x.net)),
+      tag:'🤝 Consolidado'
+    }));
+}
+
+// ─── Components ───────────────────────────────────────────────────────────────
+function TransferCard({from,to,amount,tag}){
+  const[c,setC]=useState(false);
+  return(
+    <div style={{background:'linear-gradient(135deg,#1e293b,#0f172a)',border:'1px solid #334155',borderRadius:10,padding:'10px 13px',display:'flex',alignItems:'center',justifyContent:'space-between',gap:8,flexWrap:'wrap',transition:'border-color .2s'}}
+      onMouseEnter={e=>e.currentTarget.style.borderColor='#f97316'} onMouseLeave={e=>e.currentTarget.style.borderColor='#334155'}>
+      <div style={{display:'flex',alignItems:'center',gap:7,flexWrap:'wrap'}}>
+        <span style={{background:'#4c0519',borderRadius:7,padding:'4px 10px',fontSize:12,fontWeight:700,color:'#fca5a5'}}>{from}</span>
+        <span style={{color:'#64748b'}}>→</span>
+        <span style={{background:'#052e16',borderRadius:7,padding:'4px 10px',fontSize:12,fontWeight:700,color:'#86efac'}}>{to}</span>
+        <span className="mono" style={{fontSize:17,fontWeight:800,color:'#f59e0b'}}>{fmt(amount)}</span>
+        {tag&&<span style={{fontSize:10,color:'#94a3b8',background:'#1e293b',borderRadius:4,padding:'1px 6px'}}>{tag}</span>}
+      </div>
+      <button onClick={()=>navigator.clipboard.writeText(`Hola ${to}! Te debo ${fmt(amount)} del poker 🔥 Pásame tu cuenta 😄`).then(()=>{setC(true);setTimeout(()=>setC(false),2500)}).catch(()=>{setC(true);setTimeout(()=>setC(false),2500)})} style={{background:c?'#052e16':'#0f172a',border:`1px solid ${c?'#10b981':'#475569'}`,borderRadius:7,padding:'4px 11px',color:c?'#10b981':'#94a3b8',fontSize:11,fontWeight:600,whiteSpace:'nowrap'}}>
+        {c?'✓ Copiado!':'📋 Copiar'}
+      </button>
+    </div>
+  );
+}
+
+function AwardCard({emoji,title,name,value,sub,accent}){
+  return(
+    <div style={{background:`linear-gradient(135deg,${accent}14,#0f172a)`,border:`1px solid ${name?accent+'40':'#1e293b'}`,borderRadius:10,padding:13}}>
+      <div style={{display:'flex',gap:9,alignItems:'flex-start'}}>
+        <span style={{fontSize:28}}>{emoji}</span>
+        <div style={{flex:1,minWidth:0}}>
+          <p style={{fontSize:9,color:'#64748b',fontWeight:700,letterSpacing:1,marginBottom:2}}>{title}</p>
+          {name?<><p style={{fontSize:15,fontWeight:800,color:'#e2e8f0',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{name}</p>
+            <p className="mono" style={{fontSize:13,color:accent,marginTop:1,fontWeight:700}}>{value}</p>
+            {sub&&<p style={{fontSize:10,color:'#64748b',marginTop:1}}>{sub}</p>}</>
+          :<p style={{color:'#334155',fontSize:11,marginTop:3}}>Sin datos</p>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PinModal({mode,onConfirm,onCancel}){
+  const[pin,setPin]=useState('');const[pin2,setPin2]=useState('');const[err,setErr]=useState('');
+  return(
+    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.8)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:100,padding:18}}>
+      <div className="pop" style={{background:'#1e293b',border:'1px solid #f97316',borderRadius:13,padding:22,maxWidth:320,width:'100%'}}>
+        <h3 style={{fontSize:14,fontWeight:800,marginBottom:5,color:'#f97316'}}>{mode==='set'?'🔐 Configurar PIN':'🔒 Sellar Partida'}</h3>
+        <p style={{fontSize:11,color:'#64748b',marginBottom:12}}>{mode==='set'?'Protege las partidas selladas. Mínimo 4 dígitos.':'Ingresa el PIN para sellar esta partida.'}</p>
+        <input type="password" inputMode="numeric" maxLength={8} placeholder="PIN" value={pin} onChange={e=>setPin(e.target.value.replace(/\D/g,''))} style={{width:'100%',marginBottom:8,letterSpacing:4,fontSize:18,textAlign:'center'}}/>
+        {mode==='set'&&<input type="password" inputMode="numeric" maxLength={8} placeholder="Repetir PIN" value={pin2} onChange={e=>setPin2(e.target.value.replace(/\D/g,''))} style={{width:'100%',marginBottom:8,letterSpacing:4,fontSize:18,textAlign:'center'}}/>}
+        {err&&<p style={{color:'#f43f5e',fontSize:11,marginBottom:8}}>{err}</p>}
+        <div style={{display:'flex',gap:7}}>
+          <button onClick={()=>{if(mode==='set'){if(pin.length<4){setErr('Mínimo 4 dígitos');return;}if(pin!==pin2){setErr('No coinciden');return;}onConfirm(pin);}else{if(pin.length<4){setErr('Ingresa el PIN');return;}onConfirm(pin);}}} style={{flex:1,background:'#f97316',border:'none',borderRadius:8,padding:'9px',fontWeight:800,color:'#fff',fontSize:13}}>Confirmar</button>
+          <button onClick={onCancel} style={{background:'transparent',border:'1px solid #334155',borderRadius:8,padding:'9px 13px',color:'#64748b',fontSize:13}}>Cancelar</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CommentsModal({comments,achievements,onClose}){
+  return(
+    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.85)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:100,padding:16}}>
+      <div className="pop" style={{background:'#1e293b',border:'1px solid #f97316',borderRadius:13,padding:20,maxWidth:440,width:'100%',maxHeight:'90vh',overflowY:'auto'}}>
+        <div style={{textAlign:'center',marginBottom:14}}>
+          <div style={{fontSize:36,marginBottom:4}}>🎭</div>
+          <h3 style={{fontSize:16,fontWeight:900,color:'#f97316'}}>Crónica de la Noche</h3>
+          <p style={{fontSize:11,color:'#64748b'}}>El veredicto oficial. Inapelable.</p>
+        </div>
+        {comments.map((c,i)=><div key={i} style={{background:'#0f172a',borderRadius:8,padding:'9px 13px',marginBottom:7,fontSize:13,lineHeight:1.6,borderLeft:'3px solid #f97316'}}>{c}</div>)}
+        {achievements.length>0&&<>
+          <p style={{fontSize:10,color:'#64748b',fontWeight:700,letterSpacing:1,margin:'14px 0 8px'}}>LOGROS DESBLOQUEADOS ESTA NOCHE</p>
+          {achievements.map(a=>(
+            <div key={a.id} style={{display:'flex',gap:10,alignItems:'center',background:'linear-gradient(135deg,#f59e0b18,#0f172a)',border:'1px solid #f59e0b40',borderRadius:8,padding:'8px 12px',marginBottom:6}}>
+              <span style={{fontSize:24}}>{a.emoji}</span>
+              <div><p style={{fontSize:13,fontWeight:700,color:'#fbbf24'}}>{a.title}</p><p style={{fontSize:11,color:'#94a3b8'}}>{a.desc}</p></div>
+            </div>
+          ))}
+        </>}
+        <button onClick={onClose} style={{marginTop:12,width:'100%',background:'#f97316',border:'none',borderRadius:8,padding:'10px',fontWeight:800,color:'#fff',fontSize:13}}>🔥 ¡La mesa ha hablado!</button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Format guide modal ────────────────────────────────────────────────────────
+function FormatGuide({onClose}){
+  const ex=`Poker donde Mauri - 15/03/2024\n\nJugadores:\nPedro\nJuan - 2 rebuys\nAlfredo1\nMaría\n\nCashouts:\nPedro: 18000\nJuan: 7000\nAlfredo: 2000\nMaría: 3000`;
+  return(
+    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.85)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:100,padding:16,overflowY:'auto'}}>
+      <div className="pop" style={{background:'#1e293b',border:'1px solid #334155',borderRadius:13,padding:20,maxWidth:500,width:'100%'}}>
+        <h3 style={{fontSize:14,fontWeight:800,color:'#f97316',marginBottom:12}}>📋 Formato del Mensaje</h3>
+        <div style={{display:'flex',flexDirection:'column',gap:10}}>
+          {[
+            ['📍 Título / Lugar','Primera línea: "Poker donde Mauri", "Casa de Pedro", "Torneo Carbón"'],
+            ['📅 Fecha','En el título o en cualquier línea: 15/03/2024 ó 15 de marzo 2024'],
+            ['👥 Jugadores','Sección "Jugadores:" seguida de un nombre por línea'],
+            ['🔄 Rebuys','Varios formatos: "Juan 2", "Juan - 2", "Juan x2", "Juan2", "Juan (2 rebuys)"'],
+            ['💰 Cashouts','Sección "Cashouts:" o "Resultados:" con formato "Nombre: monto"'],
+            ['📱 WhatsApp','Pega el chat exportado directo — los timestamps se limpian automáticamente'],
+            ['🔀 Tolerancia de errores','"cashao", "ribeye", "jugaores" → detectados automáticamente como palabras clave'],
+          ].map(([t,d])=>(
+            <div key={t} style={{display:'flex',gap:10,alignItems:'flex-start'}}>
+              <span style={{minWidth:24}}>{t.split(' ')[0]}</span>
+              <div><p style={{fontSize:12,fontWeight:700,color:'#e2e8f0'}}>{t.slice(3)}</p><p style={{fontSize:11,color:'#64748b'}}>{d}</p></div>
+            </div>
+          ))}
+        </div>
+        <div style={{marginTop:14,background:'#0f172a',borderRadius:8,padding:12}}>
+          <p style={{fontSize:10,color:'#64748b',fontWeight:700,marginBottom:6}}>EJEMPLO COMPLETO</p>
+          <pre style={{fontSize:11,color:'#94a3b8',lineHeight:1.7,whiteSpace:'pre-wrap',fontFamily:'monospace'}}>{ex}</pre>
+        </div>
+        <button onClick={onClose} style={{marginTop:12,width:'100%',background:'transparent',border:'1px solid #334155',borderRadius:8,padding:'9px',color:'#64748b',fontSize:13}}>Cerrar</button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Tabs ─────────────────────────────────────────────────────────────────────
+const TABS=[{id:'setup',icon:'⚙️',label:'Setup'},{id:'res',icon:'📊',label:'Liquidar'},{id:'comida',icon:'🍕',label:'Comida'},{id:'hist',icon:'🔥',label:'Historial'}];
+const HV=[['awards','🏆 Fama'],['ranking','📊 Ranking'],['monthly','📅 Meses'],['rival','⚔️ Rival'],['sessions','📜 Partidas'],['import','📥 Importar']];
+
+// ─── MAIN APP ─────────────────────────────────────────────────────────────────
+function App(){
+  const[tab,setTab]=useState('setup');
+  const[raw,setRaw]=useState('');
+  const[title,setTitle]=useState('Mi Partida');
+  const[location,setLocation]=useState('');
+  const[buyIn,setBuyIn]=useState(5000);
+  const[players,setPlayers]=useState([]);
+  const[conflicts,setConflicts]=useState([]);
+  // food.payers: [{id,name,amount,label}]
+  // food.dinersPerPayer: {payerId: Set<playerName>} — who ate from each payer
+  const[food,setFood]=useState({payers:[{id:'p1',name:'',amount:'',label:''}],dinersPerPayer:{}});
+  const[history,setHistory]=useState([]);
+  const[saved,setSaved]=useState(false);
+  const[confirmClear,setConfirmClear]=useState(false);
+  const[newName,setNewName]=useState('');
+  const[hOpen,setHOpen]=useState(null);
+  const[fMonth,setFMonth]=useState('');
+  const[fLoc,setFLoc]=useState('');
+  const[fPlayer,setFPlayer]=useState('');
+  const[hv,setHv]=useState('awards');
+  const[adminPin,setAdminPin]=useState(()=>{try{return localStorage.getItem('pac_pin')||'';}catch(_){return'';}});
+  const[pinModal,setPinModal]=useState(null);
+  const[bulkText,setBulkText]=useState('');
+  const[detected,setDetected]=useState([]);
+  const[selImp,setSelImp]=useState([]);
+  const[importMsg,setImportMsg]=useState('');
+  const[commentsModal,setCM]=useState(null); // {comments, achievements}
+  const[showGuide,setShowGuide]=useState(false);
+  const[pronostico,setPron]=useState(null);
+
+  useEffect(()=>{try{const h=localStorage.getItem('pac_history');if(h)setHistory(JSON.parse(h));}catch(_){};},[]);
+  const saveLS=h=>{try{localStorage.setItem('pac_history',JSON.stringify(h));}catch(_){}};
+
+  // ── Parse WA ──────────────────────────────────────────────────────────────
+  const parseWA=()=>{
+    if(!raw.trim())return;
+    const{title:dt,location:dl,date:dd,players:dp,conflicts:nc}=parseBlock(raw);
+    if(dt)setTitle(dt);
+    if(dl&&!location)setLocation(dl);
+    if(dp.length>0){
+      setPlayers(dp);
+      // Init food: all players eat from all payers
+      setFood(f=>{
+        const newDPP={};
+        f.payers.forEach(p=>{newDPP[p.id]=new Set(dp.map(pl=>pl.name));});
+        return{...f,dinersPerPayer:newDPP};
+      });
+    }
+    setConflicts(nc||[]);
+    if(dd){}// date extracted, shown in title
+  };
+
+  // ── Players ────────────────────────────────────────────────────────────────
+  const addP=()=>{
+    const n=newName.trim();if(!n)return;
+    const newP={id:uid(),name:n,rebuys:0,cashout:0};
+    setPlayers(p=>[...p,newP]);
+    setFood(f=>{const d={...f.dinersPerPayer};f.payers.forEach(p=>{if(!d[p.id])d[p.id]=new Set();d[p.id].add(n);});return{...f,dinersPerPayer:d};});
+    setNewName('');
+  };
+  const updP=(id,k,v)=>setPlayers(p=>p.map(x=>x.id===id?{...x,[k]:v}:x));
+  const delP=id=>{
+    const p=players.find(x=>x.id===id);
+    setPlayers(prev=>prev.filter(x=>x.id!==id));
+    if(p){setFood(f=>{const d={...f.dinersPerPayer};Object.keys(d).forEach(pid=>{const s=new Set(d[pid]);s.delete(p.name);d[pid]=s;});return{...f,dinersPerPayer:d};});}
+  };
+
+  // ── Food payers ────────────────────────────────────────────────────────────
+  const addPayer=()=>{
+    const newId='p'+uid();
+    const allNames=players.map(p=>p.name);
+    setFood(f=>({...f,payers:[...f.payers,{id:newId,name:'',amount:'',label:''}],dinersPerPayer:{...f.dinersPerPayer,[newId]:new Set(allNames)}}));
+  };
+  const updPayer=(id,k,v)=>setFood(f=>({...f,payers:f.payers.map(p=>p.id===id?{...p,[k]:v}:p)}));
+  const delPayer=id=>setFood(f=>{const d={...f.dinersPerPayer};delete d[id];return{...f,payers:f.payers.filter(p=>p.id!==id),dinersPerPayer:d};});
+  const toggleDiner=(payerId,playerName)=>setFood(f=>{
+    const d={...f.dinersPerPayer};
+    const s=new Set(d[payerId]||[]);
+    s.has(playerName)?s.delete(playerName):s.add(playerName);
+    return{...f,dinersPerPayer:{...d,[payerId]:s}};
+  });
+  const setAllDiners=(payerId,all)=>setFood(f=>{
+    const d={...f.dinersPerPayer};
+    d[payerId]=all?new Set(players.map(p=>p.name)):new Set();
+    return{...f,dinersPerPayer:d};
+  });
+
+  // ── Calculations ──────────────────────────────────────────────────────────
+  const totalIn=players.reduce((s,p)=>s+(1+(parseInt(p.rebuys)||0))*buyIn,0);
+  const totalOut=players.reduce((s,p)=>s+(parseInt(p.cashout)||0),0);
+  const diff=totalIn-totalOut;
+  const isOK=diff===0&&players.length>0;
+
+  const validPayers=food.payers.filter(fp=>fp.name&&pm(fp.amount)>0);
+  const foodTotal=validPayers.reduce((s,fp)=>s+pm(fp.amount),0);
+
+  const pwb=players.map(p=>{
+    const inv=(1+(parseInt(p.rebuys)||0))*buyIn;
+    const co=parseInt(p.cashout)||0;
+    const pk=co-inv;
+    return{...p,investment:inv,cashout:co,pokerBalance:pk,finalBalance:pk};
+  });
+  const pokerTx=isOK?minimizeTx(pwb.map(p=>({...p,finalBalance:p.pokerBalance}))):[];
+
+  const foodTx=useMemo(()=>foodTotal>0?calcFoodTransfers(validPayers,food.dinersPerPayer):[],[validPayers,food.dinersPerPayer,foodTotal]);
+  const foodTxByPayer=useMemo(()=>{const g={};foodTx.forEach(t=>{if(!g[t.to])g[t.to]={payerName:t.to,label:t.label,transfers:[]};g[t.to].transfers.push(t);});return Object.values(g);},[foodTx]);
+  const consolidatedTx=isOK&&foodTx.length>0?consolidateTransfers(pokerTx,foodTx):[];
+
+  // ── Save / Lock ────────────────────────────────────────────────────────────
+  const saveSession=()=>{
+    const date=new Date().toLocaleDateString('es-CL');
+    const s={id:uid(),date,month:getMonth(date),title,location:location||title,buyIn,players:pwb,transactions:pokerTx,locked:false,
+      food:{total:foodTotal,payers:validPayers,transfers:foodTx,consolidated:consolidatedTx},comments:[]};
+    s.comments=generateComments(s);
+    const ach=getAchievements(s);
+    const nh=[s,...history].slice(0,200);
+    setHistory(nh);saveLS(nh);setSaved(true);setTimeout(()=>setSaved(false),3000);
+    setCM({comments:s.comments,achievements:ach});
+  };
+
+  const handleLock=sid=>{
+    const doLock=()=>{const nh=history.map(s=>s.id===sid?{...s,locked:true,lockedAt:new Date().toLocaleDateString('es-CL')}:s);setHistory(nh);saveLS(nh);};
+    if(!adminPin)setPinModal({mode:'set',onConfirm:pin=>{setAdminPin(pin);try{localStorage.setItem('pac_pin',pin);}catch(_){}doLock();setPinModal(null);}});
+    else setPinModal({mode:'lock',onConfirm:pin=>{if(pin===adminPin){doLock();}setPinModal(null);}});
+  };
+
+  // ── Pronostico ─────────────────────────────────────────────────────────────
+  const genPron=()=>{
+    if(!players.length)return;
+    const sh=rnd(players);
+    const lo=rnd(players.filter(p=>p.name!==sh.name)||players);
+    const funLines=[
+      `🔮 Esta noche ${sh.name} se lleva todo. ${lo.name} termina pagando el Uber de regreso de otro.`,
+      `🎱 La bola 8 dice: ${sh.name} gana, ${lo.name} sigue sin entender qué salió mal.`,
+      `⚡ Alerta cósmica: ${sh.name} tiene la noche. ${lo.name} tiene el rebuy.`,
+      `🌙 Las estrellas hablan: ${sh.name} vuelve a casa feliz. ${lo.name} vuelve a casa con lecciones.`,
+    ];
+    setPron(rnd(funLines));
+  };
+
+  const clearHist=()=>{const nh=history.filter(s=>s.locked);setHistory(nh);saveLS(nh);setConfirmClear(false);};
+
+  // ── Stats ─────────────────────────────────────────────────────────────────
+  const stats=useMemo(()=>{
+    const map={};
+    history.forEach(s=>s.players?.forEach(p=>{
+      const n=p.name;
+      if(!map[n])map[n]={name:n,gain:0,loss:0,rebuys:0,sessions:0,wins:0,sessionBals:[],maxGain:{v:0,where:''},maxLoss:{v:0,where:''},maxRb:{v:0,where:''}};
+      const m=map[n];const bal=p.pokerBalance||0;const rb=parseInt(p.rebuys)||0;
+      m.sessions++;m.rebuys+=rb;m.sessionBals.push(bal);
+      if(bal>0){m.gain+=bal;m.wins++;if(bal>m.maxGain.v)m.maxGain={v:bal,where:s.title};}
+      if(bal<0){m.loss+=Math.abs(bal);if(Math.abs(bal)>m.maxLoss.v)m.maxLoss={v:Math.abs(bal),where:s.title};}
+      if(rb>m.maxRb.v)m.maxRb={v:rb,where:s.title};
+    }));
+    return Object.values(map).map(m=>{
+      const net=m.gain-m.loss,avg=m.sessionBals.reduce((a,b)=>a+b,0)/(m.sessionBals.length||1);
+      const sd=Math.sqrt(m.sessionBals.reduce((a,b)=>a+Math.pow(b-avg,2),0)/(m.sessionBals.length||1));
+      return{...m,net,avg,stdDev:sd,winRate:m.sessions?Math.round(m.wins/m.sessions*100):0,mediocrity:Math.abs(avg)+sd*0.5};
+    });
+  },[history]);
+
+  const byF=(fn,arr)=>[...arr].sort(fn)[0];
+  const tiburon=byF((a,b)=>b.net-a.net,stats.filter(s=>s.net>0));
+  const lloron=byF((a,b)=>b.loss-a.loss,stats);
+  const donador=byF((a,b)=>b.rebuys-a.rebuys,stats);
+  const kamikaze=byF((a,b)=>b.maxRb.v-a.maxRb.v,stats);
+  const millonario=byF((a,b)=>b.maxGain.v-a.maxGain.v,stats);
+  const catastrofe=byF((a,b)=>b.maxLoss.v-a.maxLoss.v,stats);
+  const huevo=byF((a,b)=>a.mediocrity-b.mediocrity,stats.filter(s=>s.sessions>=2));
+  const consistente=byF((a,b)=>b.winRate-a.winRate,stats.filter(s=>s.sessions>=2));
+
+  const byMonth=useMemo(()=>{
+    const m={};
+    history.forEach(s=>{const mo=s.month||getMonth(s.date);if(!m[mo])m[mo]={sessions:[],players:{}};m[mo].sessions.push(s);
+      s.players?.forEach(p=>{if(!m[mo].players[p.name])m[mo].players[p.name]={name:p.name,net:0,rebuys:0,sessions:0};m[mo].players[p.name].net+=p.pokerBalance||0;m[mo].players[p.name].rebuys+=(parseInt(p.rebuys)||0);m[mo].players[p.name].sessions++;});
+    });
+    return Object.entries(m).sort((a,b)=>b[0].localeCompare(a[0])).map(([mo,data])=>({month:mo,label:labelMonth(mo),sessions:data.sessions,players:Object.values(data.players).sort((a,b)=>b.net-a.net)}));
+  },[history]);
+
+  const rivalidades=useMemo(()=>{
+    const pairs={};
+    history.forEach(s=>{
+      const pls=s.players||[];
+      for(let i=0;i<pls.length;i++)for(let j=i+1;j<pls.length;j++){
+        const[a,b]=[pls[i],pls[j]].sort((x,y)=>x.name.localeCompare(y.name));
+        const key=`${a.name}|||${b.name}`;
+        if(!pairs[key])pairs[key]={a:a.name,b:b.name,aNet:0,bNet:0,sessions:0};
+        pairs[key].aNet+=(a.pokerBalance||0);pairs[key].bNet+=(b.pokerBalance||0);pairs[key].sessions++;
+      }
+    });
+    return Object.values(pairs).filter(p=>p.sessions>=2).sort((a,b)=>b.sessions-a.sessions);
+  },[history]);
+
+  const allLoc=[...new Set(history.map(s=>s.location||s.title).filter(Boolean))];
+  const allMonths=[...new Set(history.map(s=>s.month||getMonth(s.date)).filter(m=>m!=='sin-fecha'))].sort((a,b)=>b.localeCompare(a));
+  const allPlayers=[...new Set(history.flatMap(s=>s.players?.map(p=>p.name)||[]))].sort();
+  const filteredHist=history.filter(s=>{
+    if(fMonth&&(s.month||getMonth(s.date))!==fMonth)return false;
+    if(fLoc&&(s.location||s.title)!==fLoc)return false;
+    if(fPlayer&&!s.players?.find(p=>p.name===fPlayer))return false;
+    return true;
+  });
+
+  const detectSessions=()=>{const s=detectAndParseSessions(bulkText);setDetected(s);setSelImp(s.map((_,i)=>i));};
+  const importSelected=()=>{
+    const toImport=detected.filter((_,i)=>selImp.includes(i)).map(s=>{
+      const bi=s.buyIn||buyIn;
+      const pls=s.players.map(p=>{const inv=(1+(parseInt(p.rebuys)||0))*bi,co=parseInt(p.cashout)||0;return{...p,investment:inv,cashout:co,pokerBalance:co-inv,finalBalance:co-inv};});
+      const tI=pls.reduce((a,p)=>a+p.investment,0),tO=pls.reduce((a,p)=>a+p.cashout,0);
+      if(Math.abs(tI-tO)>50)return null;
+      return{...s,buyIn:bi,players:pls,transactions:minimizeTx(pls.map(p=>({...p}))),comments:generateComments({...s,players:pls})};
+    }).filter(Boolean);
+    if(!toImport.length){setImportMsg('⚠️ No hay sesiones balanceadas para importar.');return;}
+    const nh=[...toImport,...history].sort((a,b)=>b.id-a.id).slice(0,200);
+    setHistory(nh);saveLS(nh);
+    setImportMsg(`✅ ${toImport.length} sesión${toImport.length!==1?'es':''} importada${toImport.length!==1?'s':''}. ¡Historia reconstruida!`);
+    setBulkText('');setDetected([]);setSelImp([]);
+    setTimeout(()=>setImportMsg(''),7000);
+  };
+
+  // ── Style tokens ──────────────────────────────────────────────────────────
+  const G={bg:'#080f1f',card:'#1e293b',brd:'#334155',txt:'#e2e8f0',mt:'#64748b',gain:'#10b981',loss:'#f43f5e',or:'#f97316',yl:'#f59e0b'};
+  const card={background:G.card,border:`1px solid ${G.brd}`,borderRadius:11,padding:18};
+  const al={borderRadius:9,padding:'11px 14px',fontSize:13,lineHeight:1.5};
+  const lbl={fontSize:10,color:G.mt,fontWeight:700,letterSpacing:'.8px',marginBottom:5,display:'block'};
+  const Pill=({active,onClick,label})=>(
+    <button onClick={onClick} style={{padding:'4px 10px',borderRadius:20,fontSize:11,fontWeight:700,border:`1px solid ${active?G.or:G.brd}`,background:active?G.or+'22':'transparent',color:active?G.or:G.mt,whiteSpace:'nowrap'}}>
+      {label}
+    </button>
+  );
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  return(
+    <div style={{fontFamily:"'Syne',sans-serif",minHeight:'100vh',background:G.bg,color:G.txt}}>
+      {pinModal&&<PinModal mode={pinModal.mode} onConfirm={pinModal.onConfirm} onCancel={()=>setPinModal(null)}/>}
+      {commentsModal&&<CommentsModal comments={commentsModal.comments} achievements={commentsModal.achievements} onClose={()=>setCM(null)}/>}
+      {showGuide&&<FormatGuide onClose={()=>setShowGuide(false)}/>}
+
+      {/* HEADER */}
+      <div style={{borderBottom:`1px solid #1e293b`,padding:'11px 17px',display:'flex',alignItems:'center',justifyContent:'space-between',background:'#040a14',position:'sticky',top:0,zIndex:9}}>
+        <div style={{display:'flex',alignItems:'center',gap:9}}>
+          <div className="fire" style={{background:'linear-gradient(135deg,#f97316,#dc2626)',borderRadius:9,width:34,height:34,display:'flex',alignItems:'center',justifyContent:'center',fontSize:16}}>🔥</div>
+          <div>
+            <h1 style={{fontSize:16,fontWeight:900,letterSpacing:'-.5px',background:'linear-gradient(135deg,#f97316,#fbbf24)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent'}}>POKER A CARBÓN</h1>
+            <p style={{fontSize:9,color:G.mt,letterSpacing:'1.5px'}}>SISTEMA BLINDADO · {history.length} PARTIDAS</p>
+          </div>
+        </div>
+        {players.length>0&&(
+          <div style={{display:'flex',gap:4,flexWrap:'wrap',justifyContent:'flex-end'}}>
+            <span style={{background:'#1e293b',border:`1px solid ${G.brd}`,borderRadius:20,padding:'3px 9px',fontSize:10,color:G.mt}}>{players.length} jug · {fmt(buyIn)}</span>
+            <span style={{background:isOK?'#052e16':'#4c0519',border:`1px solid ${isOK?G.gain:G.loss}`,borderRadius:20,padding:'3px 9px',fontSize:10,color:isOK?G.gain:G.loss,fontWeight:700}}>{isOK?'✓ OK':`Δ ${fmt(diff)}`}</span>
+          </div>
+        )}
+      </div>
+
+      {/* TABS */}
+      <div style={{display:'flex',gap:4,padding:'9px 17px',borderBottom:`1px solid #1e293b`,background:'#040a14',overflowX:'auto',WebkitOverflowScrolling:'touch'}}>
+        {TABS.map(({id,icon,label})=>(
+          <button key={id} onClick={()=>setTab(id)} style={{padding:'6px 13px',borderRadius:8,fontSize:12,fontWeight:700,border:'1px solid transparent',whiteSpace:'nowrap',background:tab===id?G.or:'transparent',color:tab===id?'#fff':G.mt,borderColor:tab===id?G.or:G.brd}}>{icon} {label}</button>
+        ))}
+      </div>
+
+      <div style={{padding:'17px 17px 56px',maxWidth:920,margin:'0 auto'}}>
+
+        {/* ═══════════════════════════ SETUP ══════════════════════════════ */}
+        {tab==='setup'&&(
+          <div className="fade-in" style={{display:'flex',flexDirection:'column',gap:14}}>
+
+            {/* Pronostico */}
+            {players.length>0&&(
+              <div style={{...al,background:pronostico?'#1c1205':'#0f172a',border:`1px solid ${pronostico?G.yl:G.brd}`,color:pronostico?'#fde68a':G.mt,display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,flexWrap:'wrap'}}>
+                {pronostico
+                  ?<span style={{fontSize:13}}>{pronostico}</span>
+                  :<span style={{fontSize:12}}>¿Quieres saber qué va a pasar esta noche?</span>}
+                <button onClick={genPron} style={{background:'transparent',border:`1px solid ${G.yl}`,borderRadius:7,padding:'4px 11px',color:G.yl,fontSize:11,fontWeight:700,whiteSpace:'nowrap'}}>
+                  🔮 {pronostico?'Repredict':'El Pronostico'}
+                </button>
+              </div>
+            )}
+
+            <div style={card}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
+                <h2 style={{fontSize:13,fontWeight:700,color:G.or}}>📱 Pegar Mensaje de WhatsApp</h2>
+                <button onClick={()=>setShowGuide(true)} style={{background:'transparent',border:`1px solid ${G.brd}`,borderRadius:7,padding:'3px 10px',color:G.mt,fontSize:11}}>📋 Ver formato</button>
+              </div>
+              <textarea value={raw} onChange={e=>setRaw(e.target.value)} placeholder={"Pega aquí tu mensaje:\n\nPoker donde Mauri - 15/03/2024\n\nJugadores:\nPedro\nJuan - 2 rebuys\nAlfredo1\n\nCashouts:\nPedro: 18000\nJuan: 7000\nAlfredo: 2000"} style={{width:'100%',minHeight:130,resize:'vertical',fontSize:12,lineHeight:1.7,fontFamily:'monospace'}}/>
+              <button onClick={parseWA} style={{marginTop:9,background:G.or,color:'#fff',border:'none',borderRadius:8,padding:'8px 18px',fontWeight:800,fontSize:13}}>🔍 Parsear</button>
+            </div>
+
+            {conflicts.filter(c=>!c.dismissed).map((c,i)=>(
+              <div key={i} className="slide-in" style={{...al,background:'#422006',border:`1px solid ${G.yl}`,color:'#fde68a',display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:7}}>
+                <span>⚠️ Se asumió que <strong>"{c.playerName}"</strong> y <strong>"{c.cashoutName}"</strong> son la misma persona.</span>
+                <button onClick={()=>setConflicts(p=>p.map((x,xi)=>xi===i?{...x,dismissed:true}:x))} style={{background:'transparent',border:`1px solid ${G.yl}`,borderRadius:6,padding:'2px 9px',color:'#fde68a',fontSize:11,fontWeight:700}}>Deshacer</button>
+              </div>
+            ))}
+
+            <div style={{...card,display:'grid',gridTemplateColumns:'1fr 1fr 125px',gap:11}}>
+              <div><span style={lbl}>NOMBRE DE LA SESIÓN</span><input value={title} onChange={e=>setTitle(e.target.value)} style={{width:'100%'}}/></div>
+              <div><span style={lbl}>CASA / LUGAR 🏠</span><input value={location} onChange={e=>setLocation(e.target.value)} placeholder="ej: Casa de Mauri" style={{width:'100%'}}/></div>
+              <div><span style={lbl}>BUY-IN ($)</span><input type="number" value={buyIn} onChange={e=>setBuyIn(parseInt(e.target.value)||0)} style={{width:'100%'}} min="0" step="500"/></div>
+            </div>
+
+            <div style={card}>
+              <h2 style={{fontSize:13,fontWeight:700,marginBottom:12}}>👥 Jugadores <span style={{color:G.mt,fontWeight:400}}>({players.length})</span></h2>
+              {players.length===0?<p style={{color:G.mt,textAlign:'center',padding:'18px 0',fontSize:13}}>Parsea un mensaje o agrega manualmente</p>
+              :<div style={{overflowX:'auto'}}><table><thead><tr><th>JUGADOR</th><th style={{width:72}}>REBUYS</th><th style={{width:104}} className="hide-m">INVERSIÓN</th><th style={{width:108}}>CASHOUT ($)</th><th style={{width:28}}></th></tr></thead>
+                <tbody>{players.map(p=>(
+                  <tr key={p.id}>
+                    <td><input value={p.name} onChange={e=>updP(p.id,'name',e.target.value)} style={{width:'100%',padding:'5px 7px'}}/></td>
+                    <td><input type="number" value={p.rebuys} min="0" onChange={e=>updP(p.id,'rebuys',e.target.value)} style={{width:'100%',padding:'5px 7px'}}/></td>
+                    <td className="hide-m"><span className="mono" style={{color:G.mt,fontSize:12}}>{fmt((1+parseInt(p.rebuys||0))*buyIn)}</span></td>
+                    <td><input type="number" value={p.cashout} min="0" onChange={e=>updP(p.id,'cashout',e.target.value)} style={{width:'100%',padding:'5px 7px'}}/></td>
+                    <td><button onClick={()=>delP(p.id)} style={{background:'transparent',border:'none',color:G.loss,fontSize:16,padding:'2px 3px'}}>×</button></td>
+                  </tr>
+                ))}</tbody></table></div>}
+              <div style={{display:'flex',gap:7,marginTop:11}}>
+                <input value={newName} onChange={e=>setNewName(e.target.value)} onKeyDown={e=>e.key==='Enter'&&addP()} placeholder="Nombre del jugador..." style={{flex:1,padding:'7px 10px'}}/>
+                <button onClick={addP} style={{background:'transparent',border:`1px solid ${G.or}`,borderRadius:8,padding:'7px 13px',color:G.or,fontWeight:700,fontSize:12}}>+ Agregar</button>
+              </div>
+            </div>
+
+            {players.length>0&&<>
+              <div style={{...card,display:'grid',gridTemplateColumns:'repeat(3,1fr)'}}>
+                {[{l:'INGRESOS',v:totalIn,c:G.gain},{l:'CASHOUTS',v:totalOut,c:diff!==0?G.loss:G.gain},{l:'DIFERENCIA',v:diff,c:diff===0?G.gain:diff>0?G.or:G.loss}].map(({l,v,c},i)=>(
+                  <div key={i} style={{textAlign:'center',padding:'3px 0',borderRight:i<2?`1px solid ${G.brd}`:'none'}}>
+                    <p style={{fontSize:9,color:G.mt,marginBottom:4,fontWeight:700,letterSpacing:'.6px'}}>{l}</p>
+                    <p className="mono" style={{fontSize:18,fontWeight:800,color:c}}>{l==='DIFERENCIA'?(diff===0?'✓ OK':(diff>0?'+':'')+fmt(diff)):fmt(v)}</p>
+                  </div>
+                ))}
+              </div>
+              {diff>0&&<div style={{...al,background:'#431407',border:`1px solid ${G.or}`,color:'#fed7aa'}}>⚠️ Faltan <strong>{fmt(diff)}</strong> por declarar en cashouts.</div>}
+              {diff<0&&<div style={{...al,background:'#4c0519',border:`1px solid ${G.loss}`,color:'#fecdd3'}}>🚨 Se declararon <strong>{fmt(Math.abs(diff))}</strong> de más.</div>}
+              {isOK&&<div style={{...al,background:'#052e16',border:`1px solid ${G.gain}`,color:'#a7f3d0'}}>✅ ¡La mesa cuadra! Puedes calcular la liquidación.</div>}
+            </>}
+
+            <button disabled={!isOK} onClick={()=>setTab('res')} style={{alignSelf:'flex-start',background:isOK?G.or:'#334155',color:isOK?'#fff':G.mt,border:'none',borderRadius:9,padding:'10px 22px',fontWeight:800,fontSize:13,cursor:isOK?'pointer':'not-allowed'}}>
+              Calcular Liquidación →
+            </button>
+          </div>
+        )}
+
+        {/* ═════════════════════════ LIQUIDACIÓN ══════════════════════════ */}
+        {tab==='res'&&(
+          <div className="fade-in" style={{display:'flex',flexDirection:'column',gap:14}}>
+            {!isOK&&<div style={{...al,background:'#4c0519',border:`1px solid ${G.loss}`,color:'#fecdd3'}}>🚨 La mesa no cuadra. Vuelve al Setup.</div>}
+            {players.length>0&&<div style={card}>
+              <h2 style={{fontSize:13,fontWeight:700,marginBottom:12}}>📊 Resultados</h2>
+              <div style={{overflowX:'auto'}}><table><thead><tr><th>JUGADOR</th><th>REBUYS</th><th className="hide-m">INVERSIÓN</th><th>CASHOUT</th><th>RESULTADO</th></tr></thead>
+                <tbody>{[...pwb].sort((a,b)=>b.pokerBalance-a.pokerBalance).map(p=>(
+                  <tr key={p.id}>
+                    <td style={{fontWeight:600}}>{p.name}</td>
+                    <td className="mono" style={{color:p.rebuys>0?G.or:G.mt,fontSize:12}}>{p.rebuys>0?`+${p.rebuys}`:'—'}</td>
+                    <td className="mono hide-m" style={{color:G.mt,fontSize:12}}>{fmt(p.investment)}</td>
+                    <td className="mono" style={{fontSize:12}}>{fmt(p.cashout)}</td>
+                    <td><span className="mono" style={{fontSize:14,fontWeight:800,color:p.pokerBalance>0?G.gain:p.pokerBalance<0?G.loss:G.mt}}>{p.pokerBalance>0?'+':''}{fmt(p.pokerBalance)}</span></td>
+                  </tr>
+                ))}</tbody></table></div>
+            </div>}
+            {isOK&&<div style={card}>
+              <h2 style={{fontSize:13,fontWeight:700,marginBottom:3}}>💸 Transferencias (solo poker)</h2>
+              <p style={{fontSize:11,color:G.mt,marginBottom:11}}>{pokerTx.length===0?'¡Todos parejos! 🎉':`${pokerTx.length} transferencia${pokerTx.length!==1?'s':''} (mínimo necesario)`}</p>
+              {pokerTx.length===0?<div style={{...al,background:'#052e16',border:`1px solid ${G.gain}`,color:'#a7f3d0'}}>🎉 ¡Nadie debe nada!</div>
+              :<div style={{display:'flex',flexDirection:'column',gap:6}}>{pokerTx.map((t,i)=><TransferCard key={i} {...t}/>)}</div>}
+            </div>}
+            <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+              <button onClick={saveSession} style={{background:saved?'#052e16':G.or,color:saved?G.gain:'#fff',border:saved?`1px solid ${G.gain}`:'none',borderRadius:9,padding:'9px 20px',fontWeight:800,fontSize:13}}>
+                {saved?'✅ ¡Guardado!':'💾 Guardar Sesión'}
+              </button>
+              <button onClick={()=>setTab('comida')} style={{background:'transparent',border:`1px solid ${G.brd}`,borderRadius:9,padding:'9px 20px',color:G.mt,fontWeight:700,fontSize:13}}>🍕 Agregar Comida →</button>
+            </div>
+          </div>
+        )}
+
+        {/* ═══════════════════════════ COMIDA ════════════════════════════ */}
+        {tab==='comida'&&(
+          <div className="fade-in" style={{display:'flex',flexDirection:'column',gap:14}}>
+
+            {/* Config pagadores + matriz */}
+            <div style={card}>
+              <h2 style={{fontSize:13,fontWeight:700,marginBottom:4,color:G.or}}>🍕 Módulo de Comida</h2>
+              <p style={{fontSize:11,color:G.mt,marginBottom:14}}>Uno o varios pagadores. Marca quién consumió de cada uno. Las transferencias de comida son independientes del poker.</p>
+
+              <span style={lbl}>PAGADORES</span>
+              <div style={{display:'flex',flexDirection:'column',gap:8,marginBottom:12}}>
+                {food.payers.map((fp)=>(
+                  <div key={fp.id} style={{display:'grid',gridTemplateColumns:'1fr 110px 100px auto',gap:7,alignItems:'center'}}>
+                    <select value={fp.name} onChange={e=>updPayer(fp.id,'name',e.target.value)} style={{width:'100%'}}>
+                      <option value="">¿Quién pagó?</option>
+                      {players.map(p=><option key={p.id} value={p.name}>{p.name}</option>)}
+                    </select>
+                    <input type="number" value={fp.amount} onChange={e=>updPayer(fp.id,'amount',e.target.value)} placeholder="Monto $" min="0" style={{width:'100%'}}/>
+                    <input value={fp.label} onChange={e=>updPayer(fp.id,'label',e.target.value)} placeholder="ej: Cena" style={{width:'100%'}}/>
+                    {food.payers.length>1&&<button onClick={()=>delPayer(fp.id)} style={{background:'transparent',border:'none',color:G.loss,fontSize:16,padding:'2px 6px'}}>×</button>}
+                  </div>
+                ))}
+                <button onClick={addPayer} style={{alignSelf:'flex-start',background:'transparent',border:`1px solid ${G.brd}`,borderRadius:7,padding:'5px 11px',color:G.mt,fontSize:11,fontWeight:700}}>+ Otro pagador</button>
+              </div>
+
+              {foodTotal>0&&<div style={{...al,background:'#052e16',border:`1px solid ${G.gain}`,color:'#a7f3d0',marginBottom:12}}>
+                💰 Total: <strong className="mono">{fmt(foodTotal)}</strong>
+                {validPayers.length>1&&<span style={{color:'#6ee7b7'}}> — {validPayers.map(fp=>`${fp.name}: ${fmt(pm(fp.amount))}${fp.label?' ('+fp.label+')':''}`).join(' · ')}</span>}
+              </div>}
+
+              {validPayers.length>0&&players.length>0&&(
+                <>
+                  <span style={lbl}>¿QUIÉN CONSUMIÓ DE CADA PAGADOR?</span>
+                  <div style={{overflowX:'auto'}}>
+                    <table style={{width:'auto',minWidth:'100%'}}>
+                      <thead>
+                        <tr>
+                          <th style={{minWidth:90}}>JUGADOR</th>
+                          {validPayers.map(fp=>(
+                            <th key={fp.id} style={{textAlign:'center',minWidth:90}}>
+                              <div>{fp.label||fp.name}</div>
+                              <div style={{color:G.or,fontWeight:700}} className="mono">{fmt(pm(fp.amount))}</div>
+                              <div style={{fontSize:9,color:G.mt}}>÷{[...(food.dinersPerPayer[fp.id]||new Set())].length||'?'} = {fmt(Math.round(pm(fp.amount)/Math.max([...(food.dinersPerPayer[fp.id]||new Set())].length,1)))}</div>
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {players.map(p=>(
+                          <tr key={p.id}>
+                            <td style={{fontWeight:600,fontSize:13}}>{p.name}</td>
+                            {validPayers.map(fp=>{
+                              const checked=(food.dinersPerPayer[fp.id]||new Set()).has(p.name);
+                              const share=Math.round(pm(fp.amount)/Math.max([...(food.dinersPerPayer[fp.id]||new Set())].length,1));
+                              return(
+                                <td key={fp.id} style={{textAlign:'center'}}>
+                                  {p.name===fp.name
+                                    ?<span style={{color:G.gain,fontSize:11}}>👑 pagó</span>
+                                    :<button onClick={()=>toggleDiner(fp.id,p.name)} style={{background:checked?G.or+'22':'transparent',border:`1px solid ${checked?G.or:G.brd}`,borderRadius:7,padding:'4px 8px',color:checked?G.or:G.mt,fontSize:11,fontWeight:700,minWidth:60}}>
+                                      {checked?`✓ ${fmt(share)}`:'—'}
+                                    </button>}
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div style={{display:'flex',gap:6,flexWrap:'wrap',marginTop:8}}>
+                    {validPayers.map(fp=>(
+                      <div key={fp.id} style={{display:'flex',gap:4}}>
+                        <button onClick={()=>setAllDiners(fp.id,true)} style={{background:'transparent',border:`1px solid ${G.brd}`,borderRadius:6,padding:'3px 8px',color:G.mt,fontSize:10}}>Todos → {fp.label||fp.name}</button>
+                        <button onClick={()=>setAllDiners(fp.id,false)} style={{background:'transparent',border:`1px solid ${G.brd}`,borderRadius:6,padding:'3px 8px',color:G.mt,fontSize:10}}>Ninguno</button>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Transferencias de comida por pagador */}
+            {foodTx.length>0&&(
+              <div style={card}>
+                <h2 style={{fontSize:13,fontWeight:700,marginBottom:4}}>💸 Transferencias de Comida</h2>
+                <p style={{fontSize:11,color:G.mt,marginBottom:12}}>Pagos directos — independientes del poker.</p>
+                {foodTxByPayer.map(group=>(
+                  <div key={group.payerName} style={{marginBottom:14}}>
+                    <p style={{fontSize:10,color:G.or,fontWeight:700,letterSpacing:'.5px',marginBottom:7}}>
+                      {group.payerName.toUpperCase()}{group.label?` — ${group.label.toUpperCase()}`:''}
+                    </p>
+                    <div style={{display:'flex',flexDirection:'column',gap:5}}>
+                      {group.transfers.map((t,i)=><TransferCard key={i} from={t.from} to={t.to} amount={t.amount}/>)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Consolidado: solo cuando mismos dos jugadores se deben en AMBOS */}
+            {consolidatedTx.length>0&&isOK&&(
+              <div style={{...card,border:`1px solid ${G.yl}44`,background:`linear-gradient(135deg,${G.yl}08,#0f172a)`}}>
+                <h2 style={{fontSize:13,fontWeight:700,marginBottom:4,color:G.yl}}>🤝 Pagos Consolidados</h2>
+                <p style={{fontSize:11,color:G.mt,marginBottom:12}}>
+                  Estas personas se debían plata en el poker Y en la comida. Se puede hacer un solo pago neto.
+                </p>
+                <div style={{display:'flex',flexDirection:'column',gap:5}}>
+                  {consolidatedTx.map((t,i)=><TransferCard key={i} from={t.from} to={t.to} amount={t.amount} tag={t.tag}/>)}
+                </div>
+                <p style={{fontSize:10,color:G.mt,marginTop:10}}>
+                  ⚠️ Si usas este pago consolidado, <strong>no</strong> hagas la transferencia de comida separada para las mismas personas.
+                </p>
+              </div>
+            )}
+
+            {foodTotal>0&&!isOK&&<div style={{...al,background:'#4c0519',border:`1px solid ${G.loss}`,color:'#fecdd3'}}>Cuadra primero la mesa en Setup para ver transferencias combinadas.</div>}
+          </div>
+        )}
+
+                {/* ═══════════════════════════ HISTORIAL ═════════════════════════ */}
+        {tab==='hist'&&(
+          <div className="fade-in" style={{display:'flex',flexDirection:'column',gap:12}}>
+            <div style={{display:'flex',gap:4,flexWrap:'wrap'}}>
+              {HV.map(([id,label])=>(
+                <button key={id} onClick={()=>setHv(id)} style={{padding:'6px 12px',borderRadius:8,fontSize:11,fontWeight:700,border:'1px solid transparent',whiteSpace:'nowrap',background:hv===id?G.or:'transparent',color:hv===id?'#fff':G.mt,borderColor:hv===id?G.or:G.brd}}>
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {/* SALÓN DE LA FAMA */}
+            {hv==='awards'&&(
+              history.length===0
+              ?<div style={{...card,textAlign:'center',padding:'36px 18px',color:G.mt}}><p style={{fontSize:34,marginBottom:7}}>🔥</p><p>Guarda partidas para ver el Salón de la Fama.</p></div>
+              :<div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:9}}>
+                <AwardCard emoji="🦈" title="EL TIBURÓN" accent={G.gain} name={tiburon?.name} value={tiburon?fmtS(tiburon.net):null} sub={tiburon?`${tiburon.sessions} partidas · ${tiburon.winRate}% wins`:null}/>
+                <AwardCard emoji="😭" title="EL LLORÓN" accent={G.loss} name={lloron?.name} value={lloron?`-${fmt(lloron.loss)} acumulado`:null} sub={lloron?`${lloron.sessions} partidas`:null}/>
+                <AwardCard emoji="🩸" title="EL DONADOR" accent={G.or} name={donador?.name} value={donador?`${donador.rebuys} rebuys totales`:null} sub={donador?`~${donador.sessions?Math.round(donador.rebuys/donador.sessions*10)/10:0}/sesión`:null}/>
+                <AwardCard emoji="🎰" title="EL KAMIKAZE" accent="#a855f7" name={kamikaze?.name} value={kamikaze?.maxRb.v>0?`${kamikaze.maxRb.v} rebuys de una`:null} sub={kamikaze?.maxRb.where||null}/>
+                <AwardCard emoji="💰" title="EL GOLPE DEL SIGLO" accent={G.yl} name={millonario?.name} value={millonario?.maxGain.v>0?`+${fmt(millonario.maxGain.v)} de una noche`:null} sub={millonario?.maxGain.where||null}/>
+                <AwardCard emoji="💥" title="EL APOCALIPSIS" accent="#ef4444" name={catastrofe?.name} value={catastrofe?.maxLoss.v>0?`-${fmt(catastrofe.maxLoss.v)} de una noche`:null} sub={catastrofe?.maxLoss.where||null}/>
+                <AwardCard emoji="🥚" title="EL HUEVO SIN SAL" accent="#94a3b8" name={huevo?.name} value={huevo?`Promedio ${fmtS(Math.round(huevo.avg))}/sesión`:null} sub={huevo?`${huevo.sessions} sesiones sin pena ni gloria`:null}/>
+                <AwardCard emoji="🎯" title="EL CONSISTENTE" accent="#22d3ee" name={consistente?.name} value={consistente?`${consistente.winRate}% victorias`:null} sub={consistente?`${consistente.wins}/${consistente.sessions} partidas`:null}/>
+              </div>
+            )}
+
+            {/* RANKING */}
+            {hv==='ranking'&&(
+              <div style={card}>
+                <h2 style={{fontSize:14,fontWeight:800,marginBottom:3,color:G.or}}>📊 Ranking All-Time</h2>
+                <p style={{fontSize:11,color:G.mt,marginBottom:12}}>Resultados acumulados de toda la historia del grupo.</p>
+                {stats.length===0?<p style={{color:G.mt,textAlign:'center',padding:'18px 0'}}>Sin datos.</p>
+                :<div style={{overflowX:'auto'}}><table>
+                  <thead><tr><th>#</th><th>JUGADOR</th><th>PART.</th><th>WIN%</th><th>GANADO</th><th>PERDIDO</th><th>NETO</th><th className="hide-m">REBUYS</th></tr></thead>
+                  <tbody>{[...stats].sort((a,b)=>b.net-a.net).map((s,i)=>(
+                    <tr key={s.name}>
+                      <td style={{color:G.mt,fontSize:12,fontWeight:700}}>{i===0?'🥇':i===1?'🥈':i===2?'🥉':i+1}</td>
+                      <td style={{fontWeight:700,color:i<3?G.or:G.txt}}>{s.name}</td>
+                      <td style={{color:G.mt}}>{s.sessions}</td>
+                      <td><span style={{fontSize:12,color:s.winRate>=50?G.gain:G.loss,fontWeight:700}}>{s.winRate}%</span></td>
+                      <td className="mono" style={{fontSize:12,color:G.gain}}>+{fmt(s.gain)}</td>
+                      <td className="mono" style={{fontSize:12,color:G.loss}}>-{fmt(s.loss)}</td>
+                      <td><span className="mono" style={{fontSize:13,fontWeight:800,color:s.net>0?G.gain:s.net<0?G.loss:G.mt}}>{fmtS(s.net)}</span></td>
+                      <td className="mono hide-m" style={{fontSize:12,color:s.rebuys>0?G.or:G.mt}}>{s.rebuys||'—'}</td>
+                    </tr>
+                  ))}</tbody>
+                </table></div>}
+              </div>
+            )}
+
+            {/* POR MES */}
+            {hv==='monthly'&&(
+              byMonth.length===0
+              ?<div style={{...card,textAlign:'center',padding:'36px 18px',color:G.mt}}><p style={{fontSize:34}}>📅</p><p style={{marginTop:7}}>Guarda partidas para ver el resumen mensual.</p></div>
+              :byMonth.map(({month,label,sessions,players:mP})=>(
+                <div key={month} style={card}>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:12,flexWrap:'wrap',gap:7}}>
+                    <div><h2 style={{fontSize:14,fontWeight:800,color:G.or}}>{label}</h2>
+                      <p style={{fontSize:11,color:G.mt,marginTop:2}}>{sessions.length} sesión{sessions.length!==1?'es':''} · {[...new Set(sessions.map(s=>s.location||s.title))].join(', ')}</p></div>
+                    <div style={{textAlign:'right'}}><p style={{fontSize:9,color:G.mt}}>POT TOTAL</p><p className="mono" style={{fontSize:14,fontWeight:800,color:G.yl}}>{fmt(sessions.reduce((s,sess)=>s+(sess.players||[]).reduce((a,p)=>a+p.investment,0),0))}</p></div>
+                  </div>
+                  <div style={{overflowX:'auto'}}><table>
+                    <thead><tr><th>JUGADOR</th><th>SES.</th><th>NETO</th><th style={{width:'38%'}}>BARRA</th></tr></thead>
+                    <tbody>{mP.map((p,idx)=>{const mx=Math.max(...mP.map(x=>Math.abs(x.net)),1);return(
+                      <tr key={p.name}>
+                        <td style={{fontWeight:600}}>{p.name}{idx===0&&<span style={{marginLeft:5,fontSize:9,background:G.or+'33',color:G.or,borderRadius:4,padding:'1px 4px'}}>👑</span>}</td>
+                        <td style={{color:G.mt,fontSize:12}}>{p.sessions}</td>
+                        <td><span className="mono" style={{fontSize:12,fontWeight:800,color:p.net>0?G.gain:p.net<0?G.loss:G.mt}}>{fmtS(p.net)}</span></td>
+                        <td><div style={{background:'#0f172a',borderRadius:3,height:5,overflow:'hidden'}}><div style={{width:`${Math.abs(p.net)/mx*100}%`,height:'100%',background:p.net>=0?G.gain:G.loss}}/></div></td>
+                      </tr>
+                    );})}
+                    </tbody>
+                  </table></div>
+                </div>
+              ))
+            )}
+
+            {/* RIVALIDADES */}
+            {hv==='rival'&&(
+              <div style={{display:'flex',flexDirection:'column',gap:10}}>
+                <div style={{...card,paddingBottom:12}}>
+                  <h2 style={{fontSize:13,fontWeight:800,color:G.or,marginBottom:3}}>⚔️ Head-to-Head</h2>
+                  <p style={{fontSize:11,color:G.mt}}>Balances netos entre pares en sesiones compartidas (mín. 2 juntos).</p>
+                </div>
+                {rivalidades.length===0?<div style={{...card,textAlign:'center',padding:'28px',color:G.mt}}><p>Necesitas más partidas para ver rivalidades.</p></div>
+                :rivalidades.slice(0,12).map((r,i)=>{
+                  const aWin=r.aNet>r.bNet;const dif=Math.abs(r.aNet-r.bNet);const total=Math.abs(r.aNet)+Math.abs(r.bNet)||1;
+                  return(<div key={i} style={{background:'#0f172a',border:`1px solid ${G.brd}`,borderRadius:10,padding:'11px 13px'}}>
+                    <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',justifyContent:'space-between',marginBottom:7}}>
+                      <div style={{display:'flex',alignItems:'center',gap:7}}>
+                        <span style={{fontWeight:700,color:aWin?G.gain:G.mt,fontSize:13}}>{r.a}</span>
+                        <span style={{fontSize:10,color:G.mt,background:'#1e293b',borderRadius:4,padding:'1px 5px'}}>{r.sessions}×</span>
+                        <span style={{fontWeight:700,color:!aWin?G.gain:G.mt,fontSize:13}}>{r.b}</span>
+                      </div>
+                      <div style={{textAlign:'right'}}>
+                        <p className="mono" style={{fontSize:13,fontWeight:800,color:G.yl}}>{fmt(dif)} ventaja</p>
+                        <p style={{fontSize:10,color:aWin?G.gain:G.loss,fontWeight:700}}>→ {aWin?r.a:r.b}</p>
+                      </div>
+                    </div>
+                    <div style={{background:'#1e293b',borderRadius:3,height:4,overflow:'hidden',display:'flex'}}>
+                      <div style={{width:`${50+Math.min(dif/total*50,46)}%`,background:aWin?G.gain:G.loss}}/>
+                      <div style={{flex:1,background:aWin?G.loss:G.gain}}/>
+                    </div>
+                  </div>);
+                })}
+              </div>
+            )}
+
+            {/* PARTIDAS */}
+            {hv==='sessions'&&(
+              <div style={{display:'flex',flexDirection:'column',gap:11}}>
+                <div style={{...card,padding:12}}>
+                  <p style={{fontSize:10,color:G.mt,fontWeight:700,marginBottom:8}}>FILTROS</p>
+                  <div style={{display:'flex',flexDirection:'column',gap:8}}>
+                    <div><p style={{fontSize:9,color:G.mt,marginBottom:4}}>MES</p><div style={{display:'flex',gap:4,flexWrap:'wrap'}}><Pill active={!fMonth} onClick={()=>setFMonth('')} label="Todos"/>{allMonths.map(m=><Pill key={m} active={fMonth===m} onClick={()=>setFMonth(fMonth===m?'':m)} label={labelMonth(m)}/>)}</div></div>
+                    {allLoc.length>0&&<div><p style={{fontSize:9,color:G.mt,marginBottom:4}}>LUGAR</p><div style={{display:'flex',gap:4,flexWrap:'wrap'}}><Pill active={!fLoc} onClick={()=>setFLoc('')} label="Todos"/>{allLoc.map(l=><Pill key={l} active={fLoc===l} onClick={()=>setFLoc(fLoc===l?'':l)} label={l}/>)}</div></div>}
+                    {allPlayers.length>0&&<div><p style={{fontSize:9,color:G.mt,marginBottom:4}}>JUGADOR</p><div style={{display:'flex',gap:4,flexWrap:'wrap'}}><Pill active={!fPlayer} onClick={()=>setFPlayer('')} label="Todos"/>{allPlayers.map(p=><Pill key={p} active={fPlayer===p} onClick={()=>setFPlayer(fPlayer===p?'':p)} label={p}/>)}</div></div>}
+                  </div>
+                  {(fMonth||fLoc||fPlayer)&&<p style={{fontSize:11,color:G.or,marginTop:8,fontWeight:700}}>{filteredHist.length} partida{filteredHist.length!==1?'s':''} encontrada{filteredHist.length!==1?'s':''}</p>}
+                </div>
+
+                {fPlayer&&(()=>{const ps=stats.find(s=>s.name===fPlayer);return ps?(
+                  <div style={{background:`linear-gradient(135deg,${G.or}10,#0f172a)`,border:`1px solid ${G.or}40`,borderRadius:10,padding:13}}>
+                    <p style={{fontSize:13,fontWeight:800,marginBottom:9,color:G.or}}>{fPlayer} — Resumen histórico</p>
+                    <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(100px,1fr))',gap:8}}>
+                      {[['Neto total',fmtS(ps.net),ps.net>0?G.gain:ps.net<0?G.loss:G.mt],['Ganado',fmt(ps.gain),G.gain],['Perdido',fmt(ps.loss),G.loss],['Rebuys',ps.rebuys,G.or],['Partidas',ps.sessions,'#94a3b8'],['Win rate',`${ps.winRate}%`,G.yl],['Mejor noche',fmt(ps.maxGain.v),G.gain],['Peor noche',fmt(ps.maxLoss.v),G.loss]].map(([l,v,c])=>(
+                        <div key={l}><p style={{fontSize:9,color:G.mt,marginBottom:2}}>{l}</p><p className="mono" style={{fontWeight:800,color:c,fontSize:13}}>{v}</p></div>
+                      ))}
+                    </div>
+                  </div>
+                ):null;})()}
+
+                {filteredHist.length===0
+                  ?<div style={{...card,textAlign:'center',padding:'28px 0',color:G.mt}}><p style={{fontSize:34,marginBottom:7}}>🔥</p><p>Sin partidas con esos filtros.</p></div>
+                  :<div style={{display:'flex',flexDirection:'column',gap:7}}>
+                    {filteredHist.map(s=>(
+                      <div key={s.id} style={{background:'#0f172a',border:`1px solid ${s.locked?G.yl:hOpen===s.id?G.or:G.brd}`,borderRadius:9,overflow:'hidden',transition:'border-color .2s'}}>
+                        <div onClick={()=>setHOpen(hOpen===s.id?null:s.id)} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 13px',cursor:'pointer'}}>
+                          <div style={{display:'flex',alignItems:'center',gap:7,flexWrap:'wrap',minWidth:0}}>
+                            {s.locked&&<span>🔒</span>}
+                            <span style={{fontWeight:700,fontSize:13}}>{s.title}</span>
+                            {s.location&&s.location!==s.title&&<span style={{fontSize:10,color:G.or,background:G.or+'20',borderRadius:4,padding:'1px 5px'}}>{s.location}</span>}
+                            <span style={{color:G.mt,fontSize:11}}>{s.date}</span>
+                            {s.locked&&<span style={{fontSize:9,color:G.yl,background:G.yl+'20',borderRadius:4,padding:'1px 5px'}}>SELLADA</span>}
+                          </div>
+                          <span style={{color:G.mt,fontSize:15,display:'inline-block',transform:hOpen===s.id?'rotate(180deg)':'none',transition:'transform .2s',flexShrink:0}}>⌄</span>
+                        </div>
+                        {hOpen===s.id&&(
+                          <div className="fade-in" style={{padding:'0 13px 13px',borderTop:`1px solid ${G.brd}`}}>
+                            <div style={{paddingTop:9,display:'flex',flexDirection:'column',gap:3}}>
+                              {[...(s.players||[])].sort((a,b)=>b.pokerBalance-a.pokerBalance).map(p=>(
+                                <div key={p.name} style={{display:'flex',justifyContent:'space-between',fontSize:13,padding:'2px 0'}}>
+                                  <span>{p.name}{p.rebuys>0&&<span style={{color:G.or,fontSize:10,marginLeft:4}}>+{p.rebuys}rb</span>}</span>
+                                  <span className="mono" style={{fontWeight:700,color:p.pokerBalance>0?G.gain:p.pokerBalance<0?G.loss:G.mt}}>{fmtS(p.pokerBalance)}</span>
+                                </div>
+                              ))}
+                            </div>
+                            {s.transactions?.length>0&&<div style={{marginTop:9,paddingTop:9,borderTop:`1px solid ${G.brd}`}}>
+                              <p style={{fontSize:9,color:G.mt,fontWeight:700,marginBottom:6}}>TRANSFERENCIAS</p>
+                              {s.transactions.map((t,i)=>(<p key={i} style={{fontSize:12,color:'#94a3b8',marginBottom:3}}><span style={{color:'#fca5a5'}}>{t.from}</span> → <span style={{color:'#86efac'}}>{t.to}</span>: <span className="mono" style={{color:G.yl,fontWeight:700}}>{fmt(t.amount)}</span></p>))}
+                            </div>}
+                            {s.food?.total>0&&<div style={{marginTop:9,paddingTop:9,borderTop:`1px solid ${G.brd}`}}>
+                              <p style={{fontSize:9,color:G.or,fontWeight:700,marginBottom:6}}>🍕 COMIDA — {fmt(s.food.total)}</p>
+                              {s.food.transfers?.length>0
+                                ?s.food.transfers.map((t,i)=>(
+                                  <p key={i} style={{fontSize:11,color:'#94a3b8',marginBottom:3}}>
+                                    <span style={{color:'#fca5a5'}}>{t.from}</span> → <span style={{color:'#86efac'}}>{t.to}</span>: <span className="mono" style={{color:G.yl,fontWeight:700}}>{fmt(t.amount)}</span>{t.label&&<span style={{color:G.mt}}> ({t.label})</span>}
+                                  </p>
+                                ))
+                                :s.food.payers?.map((p,i)=><p key={i} style={{fontSize:11,color:G.mt}}>{p.name}: {fmt(pm(p.amount))}</p>)}
+                            </div>}
+                            {s.comments?.length>0&&<div style={{marginTop:9,paddingTop:9,borderTop:`1px solid ${G.brd}`}}>
+                              <p style={{fontSize:9,color:G.or,fontWeight:700,marginBottom:6}}>🎭 CRÓNICA</p>
+                              {s.comments.map((c,i)=><p key={i} style={{fontSize:11,color:'#94a3b8',marginBottom:4,lineHeight:1.5}}>{c}</p>)}
+                            </div>}
+                            <div style={{marginTop:10,display:'flex',gap:7,alignItems:'center',flexWrap:'wrap'}}>
+                              {!s.locked?<button onClick={()=>handleLock(s.id)} style={{background:'transparent',border:`1px solid ${G.yl}`,borderRadius:7,padding:'4px 11px',color:G.yl,fontSize:11,fontWeight:700}}>🔒 Cerrar y Sellar</button>
+                              :<span style={{fontSize:10,color:G.yl}}>🔒 Sellada el {s.lockedAt}</span>}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>}
+
+                {history.length>0&&<div style={{marginTop:3}}>
+                  {!confirmClear
+                    ?<button onClick={()=>setConfirmClear(true)} style={{background:'transparent',border:`1px solid ${G.brd}`,borderRadius:8,padding:'6px 12px',color:G.mt,fontSize:12}}>🗑️ Borrar historial</button>
+                    :<div style={{display:'flex',gap:7,alignItems:'center',flexWrap:'wrap'}}>
+                      <span style={{fontSize:11,color:G.mt}}>⚠️ Las selladas NO se borran.</span>
+                      <button onClick={clearHist} style={{background:G.loss,border:'none',borderRadius:7,padding:'5px 12px',color:'#fff',fontSize:12,fontWeight:700}}>Borrar no selladas</button>
+                      <button onClick={()=>setConfirmClear(false)} style={{background:'transparent',border:`1px solid ${G.brd}`,borderRadius:7,padding:'5px 12px',color:G.mt,fontSize:12}}>Cancelar</button>
+                    </div>}
+                </div>}
+              </div>
+            )}
+
+            {/* IMPORTAR */}
+            {hv==='import'&&(
+              <div style={{display:'flex',flexDirection:'column',gap:12}}>
+                <div style={card}>
+                  <h2 style={{fontSize:14,fontWeight:800,color:G.or,marginBottom:5}}>📥 Reconstruir Historia</h2>
+                  <p style={{fontSize:12,color:G.mt,marginBottom:12,lineHeight:1.7}}>
+                    Pega aquí todos tus mensajes de poker antiguos. Soporta:<br/>
+                    <strong style={{color:G.txt}}>· Exportación de chat WhatsApp</strong> — con o sin timestamps<br/>
+                    <strong style={{color:G.txt}}>· Múltiples sesiones</strong> — separadas por <code style={{background:'#0f172a',padding:'1px 4px',borderRadius:3,fontSize:11}}>---</code> o 3+ líneas en blanco<br/>
+                    <strong style={{color:G.txt}}>· Fecha automática</strong> — extrae del texto (15/03/2024 ó 15 de marzo 2024)<br/>
+                    <strong style={{color:G.txt}}>· Tolerancia de errores</strong> — "cashao", "ribeye", "jugaores" detectados automáticamente
+                  </p>
+                  <textarea value={bulkText} onChange={e=>setBulkText(e.target.value)} placeholder={"Ejemplo:\n\nPoker donde Mauri - 12/01/2024\nJugadores: Pedro, Juan, Alfredo1\nCashouts:\nPedro: 15000\nJuan: 5000\nAlfredo: 10000\n\n---\n\nCasa de Pedro - 26/01/2024\nJugadores:\nPedro\nJuan - 2 rebuys\nCashouts:\nPedro: 8000\nJuan: 12000"} style={{width:'100%',minHeight:180,resize:'vertical',fontSize:12,lineHeight:1.6,fontFamily:'monospace'}}/>
+                  <div style={{display:'flex',gap:8,marginTop:10,flexWrap:'wrap',alignItems:'center'}}>
+                    <button onClick={detectSessions} style={{background:G.or,color:'#fff',border:'none',borderRadius:8,padding:'9px 17px',fontWeight:800,fontSize:13}}>🔍 Detectar Sesiones</button>
+                    {importMsg&&<span style={{fontSize:12,color:G.gain,fontWeight:700}}>{importMsg}</span>}
+                  </div>
+                </div>
+
+                {detected.length>0&&(
+                  <div style={card}>
+                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:11}}>
+                      <h3 style={{fontSize:13,fontWeight:700}}>Detectadas: <span style={{color:G.or}}>{detected.length}</span></h3>
+                      <div style={{display:'flex',gap:6}}>
+                        <button onClick={()=>setSelImp(detected.map((_,i)=>i))} style={{background:'transparent',border:`1px solid ${G.brd}`,borderRadius:6,padding:'3px 9px',color:G.mt,fontSize:10}}>Todas</button>
+                        <button onClick={()=>setSelImp([])} style={{background:'transparent',border:`1px solid ${G.brd}`,borderRadius:6,padding:'3px 9px',color:G.mt,fontSize:10}}>Ninguna</button>
+                      </div>
+                    </div>
+                    <div style={{display:'flex',flexDirection:'column',gap:6,marginBottom:12,maxHeight:340,overflowY:'auto'}}>
+                      {detected.map((s,i)=>{
+                        const sel=selImp.includes(i);
+                        const tI=s.players.reduce((a,p)=>a+(1+(parseInt(p.rebuys)||0))*buyIn,0);
+                        const tO=s.players.reduce((a,p)=>a+(parseInt(p.cashout)||0),0);
+                        const ok=Math.abs(tI-tO)<100;
+                        return(
+                          <label key={i} style={{display:'flex',gap:9,alignItems:'flex-start',background:sel?'#052e16':'#0f172a',border:`1px solid ${sel?G.gain:G.brd}`,borderRadius:8,padding:'9px 11px',cursor:'pointer'}}>
+                            <input type="checkbox" checked={sel} onChange={e=>setSelImp(p=>e.target.checked?[...p,i]:p.filter(x=>x!==i))} style={{marginTop:2}}/>
+                            <div style={{flex:1}}>
+                              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:4}}>
+                                <span style={{fontWeight:700,fontSize:12}}>{s.title||'Sin título'}</span>
+                                <div style={{display:'flex',gap:4}}>
+                                  {s.date&&<span style={{fontSize:10,color:G.yl,background:G.yl+'22',borderRadius:4,padding:'1px 5px'}}>{s.date}</span>}
+                                  {!ok&&<span style={{fontSize:10,color:G.loss,background:G.loss+'22',borderRadius:4,padding:'1px 5px'}}>⚠️ no cuadra</span>}
+                                </div>
+                              </div>
+                              <p style={{fontSize:10,color:G.mt,marginTop:2}}>{s.players.length} jug: {s.players.map(p=>p.rebuys>0?`${p.name}(+${p.rebuys})`:p.name).join(', ')}</p>
+                            </div>
+                          </label>
+                        );
+                      })}
+                    </div>
+                    <button onClick={importSelected} disabled={!selImp.length} style={{background:selImp.length?G.or:'#334155',color:selImp.length?'#fff':G.mt,border:'none',borderRadius:8,padding:'9px 20px',fontWeight:800,fontSize:12,cursor:selImp.length?'pointer':'not-allowed'}}>
+                      📥 Importar {selImp.length} sesión{selImp.length!==1?'es':''}
+                    </button>
+                  </div>
+                )}
+
+                <div style={{...card,borderColor:'#1e293b'}}>
+                  <h3 style={{fontSize:12,fontWeight:700,marginBottom:5,color:G.mt}}>🔐 PIN de Administrador</h3>
+                  <p style={{fontSize:11,color:G.mt,marginBottom:9}}>{adminPin?`PIN configurado (${adminPin.length} dígitos). Úsalo para sellar partidas en la vista Partidas.`:'Configura un PIN para sellar partidas definitivamente.'}</p>
+                  <button onClick={()=>setPinModal({mode:'set',onConfirm:pin=>{setAdminPin(pin);try{localStorage.setItem('pac_pin',pin);}catch(_){}setPinModal(null);}})} style={{background:'transparent',border:`1px solid ${G.brd}`,borderRadius:7,padding:'5px 12px',color:G.mt,fontSize:11,fontWeight:700}}>
+                    {adminPin?'🔑 Cambiar PIN':'🔐 Configurar PIN'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
